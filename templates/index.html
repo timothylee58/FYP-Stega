@@ -916,6 +916,20 @@
             document.getElementById('statusAlert').classList.add('hidden');
         }
 
+        // Escape a value before interpolating it into an innerHTML template
+        // literal. Most fields built into ai-results HTML (bit_position,
+        // channel_mode, risk_level, ...) are fixed server-computed enums,
+        // but ai.caption comes straight from an external AI API response
+        // (Claude/OpenAI) and is not safe to trust verbatim.
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function parseCsvInts(text) {
             if (!text) return [];
             return text.split(',')
@@ -1214,14 +1228,16 @@
 
             const ai = result.ai || {};
             const lines = [];
-            if (ai.smart_compression_platform) lines.push(`📱 Platform: ${ai.smart_compression_platform}`);
-            lines.push(`🎨 Mode: ${ai.channel_mode || 'rgb'}, Bit: ${ai.bit_position || 0}`);
-            if (ai.caption) lines.push(`💬 Caption: ${ai.caption}`);
+            if (ai.smart_compression_platform) lines.push(`📱 Platform: ${escapeHtml(ai.smart_compression_platform)}`);
+            lines.push(`🎨 Mode: ${escapeHtml(ai.channel_mode || 'rgb')}, Bit: ${escapeHtml(ai.bit_position ?? 0)}`);
+            // ai.caption is the one field here sourced from an external AI API
+            // response rather than a server-computed enum; escape it explicitly.
+            if (ai.caption) lines.push(`💬 Caption: ${escapeHtml(ai.caption)}`);
             if (ai.suspicion_before?.suspicion_score != null) {
-                lines.push(`⚠️ Before: ${ai.suspicion_before.suspicion_score} (${ai.suspicion_before.risk_level})`);
+                lines.push(`⚠️ Before: ${escapeHtml(ai.suspicion_before.suspicion_score)} (${escapeHtml(ai.suspicion_before.risk_level)})`);
             }
             if (ai.suspicion_after?.suspicion_score != null) {
-                lines.push(`✅ After: ${ai.suspicion_after.suspicion_score} (${ai.suspicion_after.risk_level})`);
+                lines.push(`✅ After: ${escapeHtml(ai.suspicion_after.suspicion_score)} (${escapeHtml(ai.suspicion_after.risk_level)})`);
             }
 
             const el = document.getElementById('embedAiResults');
@@ -1323,10 +1339,10 @@
 
             const ai = result.ai || {};
             const lines = [];
-            if (ai.smart_compression_platform) lines.push(`📱 Platform: ${ai.smart_compression_platform}`);
-            lines.push(`🎨 Mode: ${ai.channel_mode || 'rgb'}, Bit: ${ai.bit_position || 0}`);
+            if (ai.smart_compression_platform) lines.push(`📱 Platform: ${escapeHtml(ai.smart_compression_platform)}`);
+            lines.push(`🎨 Mode: ${escapeHtml(ai.channel_mode || 'rgb')}, Bit: ${escapeHtml(ai.bit_position ?? 0)}`);
             if (ai.suspicion?.suspicion_score != null) {
-                lines.push(`⚠️ Suspicion: ${ai.suspicion.suspicion_score} (${ai.suspicion.risk_level})`);
+                lines.push(`⚠️ Suspicion: ${escapeHtml(ai.suspicion.suspicion_score)} (${escapeHtml(ai.suspicion.risk_level)})`);
             }
 
             const el = document.getElementById('extractAiResults');
