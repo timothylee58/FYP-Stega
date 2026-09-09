@@ -263,95 +263,103 @@ class AIService:
 
         # Try Claude first, then OpenAI, then local fallback.
         if self.anthropic_key:
-            return await self._generate_with_claude(frame_b64, prompt)
+            return await self._generate_with_claude(frame_b64, prompt, style)
         elif self.openai_key:
-            return await self._generate_with_openai(frame_b64, prompt)
+            return await self._generate_with_openai(frame_b64, prompt, style)
         else:
             return self._generate_fallback_caption(style)
 
-    async def _generate_with_claude(self, image_b64: str, prompt: str) -> str:
+    async def _generate_with_claude(self, image_b64: str, prompt: str, style: str) -> str:
         """Generate caption using the Anthropic Claude vision API.
 
         Sends the base64 image and prompt to the Messages API using the
-        claude-3-sonnet model.  Falls back to local generation on any error.
+        claude-3-sonnet model. Falls back to local generation uniformly on
+        any error: a non-200 response, an unexpected response shape, and a
+        transport-level failure (timeout, DNS, connection refused) all
+        converge on the same _generate_fallback_caption() path so a network
+        outage degrades the feature instead of silently dropping it.
         """
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.ANTHROPIC_API_URL,
-                headers={
-                    "x-api-key": self.anthropic_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                },
-                json={
-                    "model": "claude-3-sonnet-20240229",
-                    "max_tokens": 150,
-                    "messages": [{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/jpeg",
-                                    "data": image_b64
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.ANTHROPIC_API_URL,
+                    headers={
+                        "x-api-key": self.anthropic_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-3-sonnet-20240229",
+                        "max_tokens": 150,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "image/jpeg",
+                                        "data": image_b64
+                                    }
+                                },
+                                {
+                                    "type": "text",
+                                    "text": prompt
                                 }
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt
-                            }
-                        ]
-                    }]
-                },
-                timeout=30.0
-            )
-
-            if response.status_code == 200:
+                            ]
+                        }]
+                    },
+                    timeout=30.0
+                )
+                response.raise_for_status()
                 data = response.json()
                 return data['content'][0]['text']
-            else:
-                return self._generate_fallback_caption('casual')
+        except Exception:
+            return self._generate_fallback_caption(style)
 
-    async def _generate_with_openai(self, image_b64: str, prompt: str) -> str:
+    async def _generate_with_openai(self, image_b64: str, prompt: str, style: str) -> str:
         """Generate caption using the OpenAI GPT-4 Vision API.
 
-        Falls back to local generation on any error or non-200 response.
+        Falls back to local generation uniformly on any error: a non-200
+        response, an unexpected response shape, and a transport-level
+        failure (timeout, DNS, connection refused) all converge on the same
+        _generate_fallback_caption() path so a network outage degrades the
+        feature instead of silently dropping it.
         """
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.OPENAI_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.openai_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "gpt-4-vision-preview",
-                    "messages": [{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_b64}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.OPENAI_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {self.openai_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "gpt-4-vision-preview",
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": prompt
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{image_b64}"
+                                    }
                                 }
-                            }
-                        ]
-                    }],
-                    "max_tokens": 150
-                },
-                timeout=30.0
-            )
-
-            if response.status_code == 200:
+                            ]
+                        }],
+                        "max_tokens": 150
+                    },
+                    timeout=30.0
+                )
+                response.raise_for_status()
                 data = response.json()
                 return data['choices'][0]['message']['content']
-            else:
-                return self._generate_fallback_caption('casual')
+        except Exception:
+            return self._generate_fallback_caption(style)
 
     def _generate_fallback_caption(self, style: str) -> str:
         """Generate a fallback caption without AI when no API key is available.
